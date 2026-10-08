@@ -108,13 +108,18 @@ select:hover,select:focus{border-color:var(--border2);outline:none}
 .info-box.warn{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);color:var(--warn)}
 .info-box.err{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);color:var(--error)}
 .info-box.info{background:rgba(124,111,247,.08);border:1px solid rgba(124,111,247,.2);color:var(--accent2)}
-#hiddenPlayer{position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:.01}
+#hiddenPlayer{position:fixed;bottom:16px;right:16px;width:180px;height:101px;border-radius:10px;border:1px solid var(--border2);background:#000;z-index:9999;opacity:0;pointer-events:none;transition:opacity .3s}
+#hiddenPlayer.active{opacity:1}
 footer{text-align:center;margin-top:3rem;font-family:var(--mono);font-size:11px;color:var(--muted)}
 @media(max-width:480px){.options-row{grid-template-columns:1fr};h1{font-size:2rem};.tabs{gap:6px}}
 </style>
 </head>
 <body>
 <video id="hiddenPlayer" playsinline preload="auto"></video>
+<div id="playerOverlay" style="display:none;position:fixed;bottom:16px;right:16px;z-index:10000;font-family:var(--mono);font-size:10px;color:#fff;background:rgba(0,0,0,.7);padding:3px 8px;border-radius:0 0 10px 10px;display:flex;align-items:center;gap:6px">
+  <span>🔴 conversione in corso</span>
+  <button id="muteBtn" onclick="toggleMute()" style="background:none;border:none;cursor:pointer;color:#fff;font-size:13px;padding:0" title="Muto/Suono">🔊</button>
+</div>
 
 <div class="wrap">
 <header>
@@ -253,6 +258,7 @@ footer{text-align:center;margin-top:3rem;font-family:var(--mono);font-size:11px;
 
 <script>
 // ── THEME ────────────────────────────────────────────────────────────────────
+function toggleMute(){const p=$('hiddenPlayer');p.muted=!p.muted;$('muteBtn').textContent=p.muted?'🔇':'🔊';}
 let isDark=true;
 document.getElementById('themeBtn').addEventListener('click',()=>{
   isDark=!isDark;
@@ -265,7 +271,7 @@ const FORMATS={
   image:{cat:'image',icon:'🖼',label:'Immagine',
     exts:['png','jpg','jpeg','webp','gif','bmp','tiff','avif','ico','svg'],
     outputs:[{fmt:'png',method:'canvas'},{fmt:'jpg',method:'canvas'},{fmt:'webp',method:'canvas'},
-             {fmt:'gif',method:'canvas'},{fmt:'bmp',method:'canvas'},{fmt:'pdf',method:'img2pdf'}]},
+             {fmt:'gif',method:'canvas'},{fmt:'bmp',method:'canvas'},{fmt:'ico',method:'img2ico'},{fmt:'pdf',method:'img2pdf'}]},
   video:{cat:'video',icon:'🎬',label:'Video',
     exts:['mp4','webm','avi','mov','mkv','flv','wmv','3gp','ogv','ts','m4v'],
     outputs:[
@@ -278,11 +284,20 @@ const FORMATS={
              {fmt:'webm',method:'capturestream'},{fmt:'mp4',method:'capturestream'}]},
   document:{cat:'document',icon:'📄',label:'Documento',
     exts:['pdf','docx','doc','txt','odt','rtf','csv','epub'],
-    outputs:[{fmt:'pdf',method:'doc2pdf'},{fmt:'txt',method:'doc2txt'},{fmt:'epub',method:'doc2epub'},{fmt:'png',method:'pdf2img'},{fmt:'jpg',method:'pdf2img'}]}
+    outputs:[{fmt:'pdf',method:'doc2pdf'},{fmt:'docx',method:'doc2docx'},{fmt:'txt',method:'doc2txt'},{fmt:'epub',method:'doc2epub'},{fmt:'png',method:'pdf2img'},{fmt:'jpg',method:'pdf2img'}]}
 };
 
-const VIDEO_CODECS={mp4:['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1','video/mp4'],
-  webm:['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,vorbis','video/webm']};
+const VIDEO_CODECS={
+  // Chrome/Edge support VP8/VP9 but NOT H.264 in MediaRecorder.
+  // Firefox supports H.264 in some builds. We try both.
+  mp4: ['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1','video/mp4',
+        'video/webm;codecs=vp9,opus','video/webm;codecs=vp8,vorbis','video/webm'],
+  webm:['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,vorbis','video/webm']
+};
+// When recording "mp4" but the browser only supports webm, we record in webm and
+// deliver it — most players handle it fine. The MIME stored in the blob reflects reality.
+const VIDEO_CODECS_NATIVE_MP4=['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1','video/mp4'];
+
 const AUDIO_CODECS={ogg:['audio/ogg;codecs=opus','audio/ogg'],
   webm:['audio/webm;codecs=opus','audio/webm'],'webm-audio':['audio/webm;codecs=opus','audio/webm'],
   mp4:['audio/mp4;codecs=mp4a.40.2','audio/mp4']};
@@ -296,7 +311,7 @@ function bestAudioMime(fmt){
 const CAT_CHIPS={
   all:[{t:'png',c:'img'},{t:'jpg',c:'img'},{t:'webp',c:'img'},{t:'mp4',c:'vid'},{t:'webm',c:'vid'},
        {t:'mp3',c:'aud'},{t:'wav',c:'aud'},{t:'pdf',c:'doc'},{t:'docx',c:'doc'},{t:'epub',c:'doc'}],
-  image:[{t:'png',c:'img'},{t:'jpg',c:'img'},{t:'webp',c:'img'},{t:'gif',c:'img'},{t:'bmp',c:'img'},{t:'tiff',c:'img'}],
+  image:[{t:'png',c:'img'},{t:'jpg',c:'img'},{t:'webp',c:'img'},{t:'gif',c:'img'},{t:'bmp',c:'img'},{t:'tiff',c:'img'},{t:'ico',c:'img'}],
   video:[{t:'mp4',c:'vid'},{t:'webm',c:'vid'},{t:'avi',c:'vid'},{t:'mov',c:'vid'},{t:'mkv',c:'vid'}],
   audio:[{t:'mp3',c:'aud'},{t:'wav',c:'aud'},{t:'ogg',c:'aud'},{t:'flac',c:'aud'},{t:'m4a',c:'aud'}],
   document:[{t:'pdf',c:'doc'},{t:'docx',c:'doc'},{t:'doc',c:'doc'},{t:'txt',c:'doc'},{t:'odt',c:'doc'},{t:'rtf',c:'doc'},{t:'epub',c:'doc'}]
@@ -427,7 +442,7 @@ function setFile(file){ addFiles([file]); }
 
 // ── FORMATS ───────────────────────────────────────────────────────────────────
 function isSupported(method,fmt){
-  if(['canvas','img2pdf','doc2pdf','doc2txt','doc2epub','pdf2img','gif','webaudio'].includes(method))return true;
+  if(['canvas','img2ico','img2pdf','doc2pdf','doc2docx','doc2txt','doc2epub','pdf2img','gif','webaudio'].includes(method))return true;
   if(method==='extractaudio'){
     if(fmt==='wav') return true; // always supported via Web Audio API
     return !!bestAudioMime(fmt);
@@ -451,6 +466,7 @@ function renderFormats(){
     if(method==='pdf2img'&&currentExt!=='pdf')return;
     if(method==='doc2epub'&&currentExt==='epub')return;
     if(method==='doc2pdf'&&currentExt==='pdf')return;
+    if(method==='doc2docx'&&currentExt==='docx')return;
     const ok=isSupported(method,fmt);
     const btn=document.createElement('button');
     btn.className='fmt-btn';
@@ -462,8 +478,8 @@ function renderFormats(){
       document.querySelectorAll('.fmt-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');targetFmt=fmt;targetMethod=method;
       $('convertBtn').disabled=false;
-      const notes={canvas:'⚡ Canvas API — istantaneo',img2pdf:'📄 Immagine incorporata in PDF A4',
-        doc2pdf:'📄 Documento convertito in PDF con layout strutturato',doc2txt:'📝 Estrae il testo puro',
+      const notes={canvas:'⚡ Canvas API — istantaneo',img2ico:'🔷 Icona Windows/favicon con più dimensioni incluse (scegli nelle opzioni)',img2pdf:'📄 Immagine incorporata in PDF A4',
+        doc2pdf:'📄 Documento convertito in PDF con layout strutturato',doc2docx:'📝 Documento convertito in Word (DOCX) con formattazione',doc2txt:'📝 Estrae il testo puro',
         doc2epub:'📖 Converte il documento in EPUB (ebook)',
         pdf2img:'🖼 Ogni pagina del PDF diventa un\'immagine — scarica uno ZIP',
         gif:'🎞 GIF animata dai frame del video',webaudio:'🔊 Web Audio API — lossless',
@@ -496,7 +512,14 @@ function renderFormats(){
 function renderOptions(){
   const row=$('optionsRow');row.innerHTML='';const oc=$('optCard');
   if(currentType==='image'){
-    row.innerHTML=`<div class="opt-group"><label>Qualità JPG/WebP</label><select id="optQ"><option value="0.98">Massima</option><option value="0.85" selected>Alta</option><option value="0.65">Media</option><option value="0.45">Bassa</option></select></div>`;
+    row.innerHTML=`<div class="opt-group"><label>Qualità JPG/WebP</label><select id="optQ"><option value="0.98">Massima</option><option value="0.85" selected>Alta</option><option value="0.65">Media</option><option value="0.45">Bassa</option></select></div>
+    <div class="opt-group"><label>Dimensioni icona (ICO)</label><select id="optIco">
+      <option value="16,32,48,256" selected>Completa (16·32·48·256)</option>
+      <option value="16,32,48">Favicon sito (16·32·48)</option>
+      <option value="16,24,32,48,64,128,256">Tutte (16→256)</option>
+      <option value="256">Solo 256×256</option>
+      <option value="32">Solo 32×32</option>
+    </select></div>`;
     oc.style.display='block';
   }else if(currentType==='video'){
     row.innerHTML=`<div class="opt-group"><label>Bitrate video</label><select id="optVBR"><option value="8000000">Alta (8 Mbps)</option><option value="4000000" selected>Media (4 Mbps)</option><option value="2000000">Bassa (2 Mbps)</option></select></div>`;
@@ -527,6 +550,62 @@ function convertImage(){
       const mimes={png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',webp:'image/webp',gif:'image/gif',bmp:'image/bmp'};
       const q=parseFloat($('optQ')?.value||'0.85');
       c.toBlob(blob=>blob?resolve(blob):reject(new Error('toBlob fallito')),mimes[targetFmt]||'image/png',q);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Impossibile leggere l\'immagine'))};
+    img.src=url;
+  });
+}
+
+// 1b. IMAGE → ICO
+// An ICO file = 6-byte header + 16-byte directory entry per image + PNG data for each size.
+// PNG-in-ICO is supported by Windows Vista+, all modern browsers and favicons.
+function convertImageToIco(){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(),url=URL.createObjectURL(currentFile);
+    img.onload=async()=>{
+      try{
+        URL.revokeObjectURL(url);
+        const sizes=($('optIco')?.value||'16,32,48,256').split(',').map(Number);
+        logLine(`→ Sorgente ${img.naturalWidth}×${img.naturalHeight} · dimensioni icona: ${sizes.join(', ')}`);
+        const pngs=[];
+        for(let i=0;i<sizes.length;i++){
+          const s=sizes[i];
+          setProgress(10+(i/sizes.length)*75,`Generazione ${s}×${s}...`);
+          const c=document.createElement('canvas');c.width=s;c.height=s;
+          const ctx=c.getContext('2d');
+          ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+          // Fit image inside the square, centred, keeping proportions (transparent padding)
+          const r=Math.min(s/img.naturalWidth,s/img.naturalHeight);
+          const w=Math.max(1,Math.round(img.naturalWidth*r)),h=Math.max(1,Math.round(img.naturalHeight*r));
+          ctx.drawImage(img,Math.round((s-w)/2),Math.round((s-h)/2),w,h);
+          const blob=await new Promise(res=>c.toBlob(res,'image/png'));
+          if(!blob) throw new Error('Generazione PNG fallita per '+s+'px');
+          pngs.push({size:s,data:new Uint8Array(await blob.arrayBuffer())});
+        }
+        setProgress(90,'Assemblaggio ICO...');
+        const headerSize=6+16*pngs.length;
+        const total=headerSize+pngs.reduce((a,p)=>a+p.data.length,0);
+        const buf=new ArrayBuffer(total),v=new DataView(buf),bytes=new Uint8Array(buf);
+        v.setUint16(0,0,true);            // reserved
+        v.setUint16(2,1,true);            // type 1 = icon
+        v.setUint16(4,pngs.length,true);  // image count
+        let offset=headerSize;
+        pngs.forEach((p,i)=>{
+          const e=6+i*16;
+          v.setUint8(e,p.size>=256?0:p.size);    // width (0 means 256)
+          v.setUint8(e+1,p.size>=256?0:p.size);  // height
+          v.setUint8(e+2,0);                     // palette colours
+          v.setUint8(e+3,0);                     // reserved
+          v.setUint16(e+4,1,true);               // colour planes
+          v.setUint16(e+6,32,true);              // bits per pixel
+          v.setUint32(e+8,p.data.length,true);   // data size
+          v.setUint32(e+12,offset,true);         // data offset
+          bytes.set(p.data,offset);
+          offset+=p.data.length;
+        });
+        logLine(`→ ICO con ${pngs.length} immagini`);
+        resolve(new Blob([buf],{type:'image/x-icon'}));
+      }catch(e){reject(e)}
     };
     img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Impossibile leggere l\'immagine'))};
     img.src=url;
@@ -629,35 +708,177 @@ function convertToWav(){
   });
 }
 
-// 5. VIDEO/AUDIO → captureStream
+// 5. VIDEO/AUDIO → captureStream re-encode
+// Uses video.captureStream() which taps the browser's decoded A/V pipeline directly.
+// The video element must be visible (at least 1×1px) for Chrome to capture it.
+// Sequence: set src → load → canplay → play() → captureStream() → MediaRecorder.
 function convertViaCaptureStream(){
   return new Promise((resolve,reject)=>{
-    const isVideo=currentType==='video';
+    const isVideo=(currentType==='video');
     const player=$('hiddenPlayer');
-    player.src=URL.createObjectURL(currentFile);player.muted=false;player.playbackRate=1.0;
-    player.addEventListener('error',()=>reject(new Error('Impossibile caricare il file ('+currentExt.toUpperCase()+'). Potrebbe non essere supportato dal browser.')),{once:true});
+
+    let wakeLock=null;
+    let ticker=null;
+    let mr=null;
+    let stream=null;
+    let objectURL=null;
+    let done=false;
+
+    function cleanup(){
+      if(done)return; done=true;
+      if(ticker){clearInterval(ticker);ticker=null;}
+      if(mr&&mr.state!=='inactive'){try{mr.stop();}catch(e){}}
+      if(stream){stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}});}
+      if(wakeLock){try{wakeLock.release();}catch(e){}}
+      player.classList.remove('active');
+      const ov=$('playerOverlay'); if(ov) ov.style.display='none';
+      try{player.pause();}catch(e){}
+      if(objectURL){URL.revokeObjectURL(objectURL); objectURL=null;}
+      player.removeAttribute('src');
+      player.load();
+    }
+
+    function fail(msg){
+      cleanup();
+      reject(new Error(msg));
+    }
+
+    // Set up source
+    objectURL=URL.createObjectURL(currentFile);
+    player.src=objectURL;
+    player.muted=false;
+    player.volume=1.0;
+    player.playbackRate=1.0;
+    player.preload='auto';
+    player.classList.add('active');
+    const ov=$('playerOverlay'); if(ov) ov.style.display='flex';
+
+    // Error handler
+    player.addEventListener('error',()=>{
+      const codes={1:'ABORTED',2:'NETWORK',3:'DECODE',4:'SRC_NOT_SUPPORTED'};
+      fail('Impossibile caricare il video: '+(codes[player.error?.code]||'formato non supportato dal browser'));
+    },{once:true});
+
+    // Main logic starts here, after metadata is ready
     player.addEventListener('loadedmetadata',async()=>{
       const duration=player.duration;
-      logLine(`→ Durata: ${fmtTime(duration)}`);
-      const mime=isVideo?bestMime(VIDEO_CODECS[targetFmt]||[]):bestMime(AUDIO_CODECS[targetFmt]||[]);
-      if(!mime){reject(new Error('Codec non supportato per '+targetFmt.toUpperCase()));return}
-      logLine(`→ Codec: ${mime}`);
-      let stream;
-      try{stream=player.captureStream()}catch(e){try{stream=player.mozCaptureStream()}catch(e2){reject(new Error('captureStream() non supportato'));return}}
-      await new Promise(r=>setTimeout(r,100));
-      const bps=isVideo?parseInt($('optVBR')?.value||'4000000'):parseInt($('optABR')?.value||'192000');
-      let mr;
-      try{mr=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:isVideo?bps:undefined,audioBitsPerSecond:!isVideo?bps:undefined})}
-      catch(e){reject(new Error('MediaRecorder: '+e.message));return}
+      if(!isFinite(duration)||duration===0){fail('Durata video non rilevata — il formato potrebbe non essere supportato');return;}
+      logLine(`→ Durata: ${fmtTime(duration)} · ${player.videoWidth||'?'}×${player.videoHeight||'?'}`);
+
+      // Pick codec — for mp4, check if browser supports native mp4 first
+      let mime, actualFmt=targetFmt;
+      if(isVideo){
+        if(targetFmt==='mp4'){
+          const nativeMp4=bestMime(VIDEO_CODECS_NATIVE_MP4);
+          if(nativeMp4){
+            mime=nativeMp4;
+          } else {
+            // Fallback: record as webm (VP8/VP9), deliver as .webm
+            mime=bestMime(VIDEO_CODECS.webm);
+            if(mime){
+              actualFmt='webm';
+              logLine('→ Il browser non supporta la codifica MP4 diretta. Output in WebM.');
+              showMsg('⚠ Il tuo browser non supporta la codifica MP4 via MediaRecorder. Il file verrà salvato in formato WebM, compatibile con la maggior parte dei player.','warn');
+            }
+          }
+        } else {
+          mime=bestMime(VIDEO_CODECS[targetFmt]||[]);
+        }
+      } else {
+        mime=bestMime(AUDIO_CODECS[targetFmt]||[]);
+      }
+      if(!mime){fail('Nessun codec video supportato in questo browser. Prova il formato WebM.');return;}
+      logLine(`→ Codec: ${mime} (output: ${actualFmt.toUpperCase()})`);
+
+      // Start playback FIRST — captureStream needs the pipeline running
+      try{await player.play();}
+      catch(e){fail('Avvio riproduzione fallito: '+e.message);return;}
+
+      logLine('→ Riproduzione avviata, aggancio stream...');
+
+      // Small delay so first frames are decoded
+      await new Promise(r=>setTimeout(r,250));
+
+      // Capture stream
+      try{
+        stream=typeof player.captureStream==='function'
+          ? player.captureStream()
+          : player.mozCaptureStream();
+      }catch(e){fail('captureStream() non disponibile in questo browser');return;}
+
+      const tracks=stream.getTracks();
+      logLine(`→ Tracce: ${tracks.map(t=>t.kind).join(', ')||'nessuna'}`);
+      if(tracks.length===0){
+        fail('Nessuna traccia catturata. Il formato '+currentExt.toUpperCase()+' potrebbe non essere decodificabile dal browser.');
+        return;
+      }
+
+      // WakeLock
+      try{if(navigator.wakeLock) wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
+
+      // Bitrate
+      const bps=isVideo
+        ? parseInt($('optVBR')?.value||'4000000')
+        : parseInt($('optABR')?.value||'192000');
+
+      // Create MediaRecorder
+      try{
+        mr=new MediaRecorder(stream,{
+          mimeType:mime,
+          ...(isVideo?{videoBitsPerSecond:bps}:{audioBitsPerSecond:bps})
+        });
+      }catch(e){fail('MediaRecorder: '+e.message);return;}
+
       const chunks=[];
-      mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data)};
-      mr.onstop=()=>{URL.revokeObjectURL(player.src);player.src='';resolve(new Blob(chunks,{type:mime}))};
-      mr.onerror=e=>reject(new Error('MediaRecorder error: '+e.error));
-      const ticker=setInterval(()=>{if(!player.duration)return;setProgress(Math.min((player.currentTime/player.duration)*95,95),`Conversione ${fmtTime(player.currentTime)} / ${fmtTime(player.duration)}`)},400);
-      player.onended=()=>{clearInterval(ticker);setTimeout(()=>{mr.stop();stream.getTracks().forEach(t=>t.stop())},300)};
-      mr.start(1000);
-      try{await player.play()}catch(e){reject(new Error('Riproduzione fallita: '+e.message))}
+      mr.ondataavailable=e=>{if(e.data&&e.data.size>0) chunks.push(e.data);};
+
+      mr.onstop=()=>{
+        const blob=new Blob(chunks,{type:mime});
+        cleanup();
+        if(blob.size<512){
+          reject(new Error('Output troppo piccolo ('+blob.size+' byte) — nessun dato catturato. Prova con un altro formato di output.'));
+          return;
+        }
+        // Attach the actual format used so doConvert can name the file correctly
+        blob._actualFmt=actualFmt;
+        resolve(blob);
+      };
+
+      mr.onerror=e=>{
+        fail('MediaRecorder error: '+(e.error?.message||String(e.error)||'errore sconosciuto'));
+      };
+
+      // Progress bar
+      ticker=setInterval(()=>{
+        if(player.duration&&isFinite(player.duration)){
+          const pct=Math.min((player.currentTime/player.duration)*95,95);
+          setProgress(pct,`Conversione ${fmtTime(player.currentTime)} / ${fmtTime(player.duration)}`);
+        }
+      },400);
+
+      // Stop recording when video ends
+      player.addEventListener('ended',()=>{
+        clearInterval(ticker); ticker=null;
+        setTimeout(()=>{
+          if(mr&&mr.state==='recording') mr.stop();
+        },600);
+      },{once:true});
+
+      // Safety timeout
+      const safetyMs=(duration+15)*1000;
+      setTimeout(()=>{
+        if(mr&&mr.state==='recording'){
+          logLine('→ Timeout sicurezza: arresto registrazione');
+          mr.stop();
+        }
+      },safetyMs);
+
+      // Start recording
+      mr.start(500);
+      logLine('→ Registrazione avviata...');
+
     },{once:true});
+
     player.load();
   });
 }
@@ -797,25 +1018,9 @@ function renderBlocksToPdf(blocks, doc, opts){
   });
 }
 
-async function convertDocToPdf(){
-  if(!window.jspdf) throw new Error('jsPDF non caricato. Controlla la connessione internet.');
-  const{jsPDF}=window.jspdf;
-  const ext=currentExt.toLowerCase();
-  const pageFormat=$('optPage')?.value||'a4';
-  const baseFontSize=parseInt($('optFS')?.value||'11');
-
-  // Page dims in mm
-  const dims={a4:{w:210,h:297},letter:{w:215.9,h:279.4}};
-  const{w:pageW,h:pageH}=dims[pageFormat];
-  const margin={l:20,r:20,t:20,b:20};
-
-  logLine('→ Lettura file...');setProgress(10,'Lettura...');
-
-  const arrayBuffer=await new Promise((res,rej)=>{
-    const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Lettura fallita'));
-    r.readAsArrayBuffer(currentFile);
-  });
-
+// Shared: extract structured content blocks from any supported document format.
+// Used by both convertDocToPdf and convertDocToDocx.
+async function extractBlocksFromDocument(arrayBuffer, ext){
   let blocks=[];
 
   if(ext==='docx'){
@@ -829,7 +1034,6 @@ async function convertDocToPdf(){
   }else if(ext==='txt'||ext==='csv'){
     logLine('→ Lettura testo...');setProgress(30,'Lettura...');
     const text=new TextDecoder('utf-8',{fatal:false}).decode(arrayBuffer);
-    // Split into paragraphs on blank lines
     const paras=text.split(/\n{2,}/);
     paras.forEach(p=>{
       const t=p.trim();
@@ -838,9 +1042,7 @@ async function convertDocToPdf(){
 
   }else if(ext==='rtf'){
     logLine('→ Parsing RTF (testo puro)...');setProgress(30,'Parsing...');
-    // Strip RTF control words and extract text
     let text=new TextDecoder('utf-8',{fatal:false}).decode(arrayBuffer);
-    // Remove RTF header and control sequences
     text=text.replace(/\{\\rtf[^}]*\}/g,'')
       .replace(/\\[a-z]+\d*\s?/g,' ')
       .replace(/\{|\}/g,'')
@@ -854,18 +1056,12 @@ async function convertDocToPdf(){
     logLine('→ Formato '+ext.toUpperCase()+': estrazione testo grezzo...');setProgress(30,'Parsing...');
     showMsg('⚠ Il formato '+ext.toUpperCase()+' ha supporto limitato nel browser. La formattazione non sarà preservata. Per risultati migliori, salva prima come DOCX o TXT.','warn');
     const text=new TextDecoder('utf-8',{fatal:false}).decode(arrayBuffer);
-    // For ODT (ZIP-based), try to extract content.xml text
     let cleaned='';
     if(ext==='odt'){
-      // ODT is a ZIP; try to find readable text fragments
       const xmlMatch=text.match(/<text:p[^>]*>([\s\S]*?)<\/text:p>/g);
-      if(xmlMatch){
-        cleaned=xmlMatch.map(m=>m.replace(/<[^>]+>/g,'')).join('\n').trim();
-      }
+      if(xmlMatch) cleaned=xmlMatch.map(m=>m.replace(/<[^>]+>/g,'')).join('\n').trim();
     }
-    if(!cleaned){
-      cleaned=text.replace(/[^\x20-\x7E\n\r\t\u00C0-\u024F]/g,' ').replace(/ {3,}/g,' ').trim();
-    }
+    if(!cleaned) cleaned=text.replace(/[^\x20-\x7E\n\r\t\u00C0-\u024F]/g,' ').replace(/ {3,}/g,' ').trim();
     const paras=cleaned.split(/\n+/);
     paras.forEach(p=>{const t=p.trim();if(t.length>2)blocks.push({type:'paragraph',text:t})});
 
@@ -873,54 +1069,84 @@ async function convertDocToPdf(){
     if(!window.JSZip) throw new Error('JSZip non caricato.');
     logLine('→ Parsing EPUB...');setProgress(25,'Lettura EPUB...');
     const zip=await JSZip.loadAsync(arrayBuffer);
-    // Find OPF to get reading order
     const containerXml=await zip.file('META-INF/container.xml')?.async('string')||'';
     const opfPath=containerXml.match(/full-path="([^"]+\.opf)"/)?.[1];
     let spineOrder=[];
     if(opfPath){
       const opfXml=await zip.file(opfPath)?.async('string')||'';
       const opfBase=opfPath.replace(/[^/]+$/,'');
-      // Extract title
       const titleMatch=opfXml.match(/<dc:title[^>]*>(.*?)<\/dc:title>/i);
       if(titleMatch) blocks.push({type:'heading',level:1,text:titleMatch[1].trim()});
-      // Get manifest items
       const manifest={};
       [...(opfXml.matchAll(/<item\s[^>]+id="([^"]+)"[^>]+href="([^"]+)"[^>]*\/?>/g))]
         .forEach(m=>manifest[m[1]]=opfBase+m[2]);
-      // Get spine order
       spineOrder=[...(opfXml.matchAll(/<itemref\s+idref="([^"]+)"/g))].map(m=>manifest[m[1]]).filter(Boolean);
     }
-    if(!spineOrder.length){
-      // Fallback: all html/xhtml files sorted
-      spineOrder=Object.keys(zip.files).filter(f=>f.match(/\.(html|xhtml)$/i)).sort();
-    }
+    if(!spineOrder.length) spineOrder=Object.keys(zip.files).filter(f=>f.match(/\.(html|xhtml)$/i)).sort();
     setProgress(40,'Estrazione testo...');
     for(const path of spineOrder){
       const raw=await zip.file(path)?.async('string')||'';
-      const htmlBlocks=parseHtmlToBlocks(raw);
-      blocks.push(...htmlBlocks);
+      blocks.push(...parseHtmlToBlocks(raw));
     }
 
   }else if(ext==='pdf'){
-    throw new Error('Il file è già in formato PDF.');
+    if(!window.pdfjsLib) throw new Error('PDF.js non caricato. Controlla la connessione internet.');
+    logLine('→ Estrazione testo da PDF...');setProgress(25,'Apertura PDF...');
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    const pdfDoc=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+    const numPages=pdfDoc.numPages;
+    logLine(`→ ${numPages} pagine trovate`);
+    for(let i=1;i<=numPages;i++){
+      setProgress(25+(i/numPages)*45,`Estrazione pagina ${i}/${numPages}...`);
+      const page=await pdfDoc.getPage(i);
+      const content=await page.getTextContent();
+      let lastY=null,line='';const lines=[];
+      for(const item of content.items){
+        const y=item.transform[5];
+        if(lastY!==null&&Math.abs(y-lastY)>2){lines.push(line.trim());line='';}
+        line+=item.str+(item.hasEOL?'':' ');
+        lastY=y;
+      }
+      if(line.trim()) lines.push(line.trim());
+      // Group consecutive short lines into paragraphs (basic heuristic)
+      const pageText=lines.join(' ').replace(/\s{2,}/g,' ').trim();
+      if(pageText) blocks.push({type:'paragraph',text:pageText});
+    }
+    if(blocks.length===0) throw new Error('Nessun testo estraibile: il PDF potrebbe contenere solo immagini scansionate (richiede OCR).');
+
   }else{
-    throw new Error('Formato '+ext.toUpperCase()+' non supportato per la conversione in PDF.');
+    throw new Error('Formato '+ext.toUpperCase()+' non supportato per questa conversione.');
   }
 
+  return blocks;
+}
+
+async function convertDocToPdf(){
+  if(!window.jspdf) throw new Error('jsPDF non caricato. Controlla la connessione internet.');
+  const{jsPDF}=window.jspdf;
+  const ext=currentExt.toLowerCase();
+  if(ext==='pdf') throw new Error('Il file è già in formato PDF.');
+  const pageFormat=$('optPage')?.value||'a4';
+  const baseFontSize=parseInt($('optFS')?.value||'11');
+
+  const dims={a4:{w:210,h:297},letter:{w:215.9,h:279.4}};
+  const{w:pageW,h:pageH}=dims[pageFormat];
+  const margin={l:20,r:20,t:20,b:20};
+
+  logLine('→ Lettura file...');setProgress(10,'Lettura...');
+  const arrayBuffer=await new Promise((res,rej)=>{
+    const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Lettura fallita'));
+    r.readAsArrayBuffer(currentFile);
+  });
+
+  const blocks=await extractBlocksFromDocument(arrayBuffer,ext);
   if(blocks.length===0) throw new Error('Nessun contenuto trovato nel documento.');
   logLine(`→ ${blocks.length} blocchi di contenuto trovati`);
   setProgress(55,'Generazione PDF...');
 
-  // Build PDF
   const doc=new jsPDF({orientation:'portrait',unit:'mm',format:pageFormat});
+  renderBlocksToPdf(blocks,doc,{pageW,pageH,marginL:margin.l,marginR:margin.r,marginT:margin.t,marginB:margin.b,baseFontSize});
 
-  renderBlocksToPdf(blocks,doc,{
-    pageW,pageH,
-    marginL:margin.l,marginR:margin.r,marginT:margin.t,marginB:margin.b,
-    baseFontSize
-  });
-
-  // Add page numbers
   const totalPages=doc.getNumberOfPages();
   for(let i=1;i<=totalPages;i++){
     doc.setPage(i);
@@ -948,7 +1174,56 @@ async function convertDocToTxt(){
     const res=await mammoth.extractRawText({arrayBuffer});
     text=res.value;
   }else if(ext==='pdf'){
-    throw new Error('PDF → TXT richiede strumenti server. Apri il PDF e copia il testo.');
+    if(!window.pdfjsLib) throw new Error('PDF.js non caricato. Controlla la connessione internet.');
+    logLine('→ Estrazione testo da PDF...');setProgress(30,'Apertura PDF...');
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    const pdfDoc=await pdfjsLib.getDocument({data:arrayBuffer}).promise;
+    const numPages=pdfDoc.numPages;
+    logLine(`→ ${numPages} pagine trovate`);
+    const pageTexts=[];
+    for(let i=1;i<=numPages;i++){
+      setProgress(30+(i/numPages)*55,`Estrazione pagina ${i}/${numPages}...`);
+      const page=await pdfDoc.getPage(i);
+      const content=await page.getTextContent();
+      // Group text items into lines based on their y-position
+      let lastY=null,line='';
+      const lines=[];
+      for(const item of content.items){
+        const y=item.transform[5];
+        if(lastY!==null&&Math.abs(y-lastY)>2){
+          lines.push(line.trim());line='';
+        }
+        line+=item.str+(item.hasEOL?'':' ');
+        lastY=y;
+      }
+      if(line.trim()) lines.push(line.trim());
+      pageTexts.push(lines.join('\n'));
+    }
+    text=pageTexts.join('\n\n');
+    if(!text.trim()) throw new Error('Nessun testo estraibile: il PDF potrebbe contenere solo immagini scansionate (richiede OCR).');
+  }else if(ext==='epub'){
+    if(!window.JSZip) throw new Error('JSZip non caricato.');
+    logLine('→ Estrazione testo da EPUB...');setProgress(30,'Parsing EPUB...');
+    const zip=await JSZip.loadAsync(arrayBuffer);
+    const containerXml=await zip.file('META-INF/container.xml')?.async('string')||'';
+    const opfPath=containerXml.match(/full-path="([^"]+\.opf)"/)?.[1];
+    let spineOrder=[];
+    if(opfPath){
+      const opfXml=await zip.file(opfPath)?.async('string')||'';
+      const opfBase=opfPath.replace(/[^/]+$/,'');
+      const manifest={};
+      [...(opfXml.matchAll(/<item\s[^>]+id="([^"]+)"[^>]+href="([^"]+)"[^>]*\/?>/g))]
+        .forEach(m=>manifest[m[1]]=opfBase+m[2]);
+      spineOrder=[...(opfXml.matchAll(/<itemref\s+idref="([^"]+)"/g))].map(m=>manifest[m[1]]).filter(Boolean);
+    }
+    if(!spineOrder.length) spineOrder=Object.keys(zip.files).filter(f=>f.match(/\.(html|xhtml)$/i)).sort();
+    const parts=[];
+    for(const path of spineOrder){
+      const raw=await zip.file(path)?.async('string')||'';
+      const body=raw.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]||raw;
+      parts.push(body.replace(/<[^>]+>/g,' ').replace(/\s{2,}/g,' ').trim());
+    }
+    text=parts.join('\n\n');
   }else{
     text=new TextDecoder('utf-8',{fatal:false}).decode(arrayBuffer);
     if(ext==='rtf') text=text.replace(/\\[a-z]+\d*\s?/g,' ').replace(/\{|\}/g,'').replace(/[ \t]{2,}/g,' ');
@@ -958,7 +1233,150 @@ async function convertDocToTxt(){
   return new Blob([text],{type:'text/plain;charset=utf-8'});
 }
 
-// 8. PDF → images (one PNG/JPG per page, packaged as ZIP)
+// 11. DOCUMENT/PDF/EPUB → DOCX (builds a valid Office Open XML package from scratch)
+function escapeXml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+
+function blocksToDocxXml(blocks){
+  const paras=[];
+
+  function run(text,opts={}){
+    const props=[];
+    if(opts.bold) props.push('<w:b/>');
+    if(opts.italic) props.push('<w:i/>');
+    if(opts.size) props.push(`<w:sz w:val="${opts.size*2}"/>`);
+    if(opts.color) props.push(`<w:color w:val="${opts.color}"/>`);
+    const rPr=props.length?`<w:rPr>${props.join('')}</w:rPr>`:'';
+    return `<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`;
+  }
+
+  function para(runsXml,pPr=''){
+    return `<w:p>${pPr}${runsXml}</w:p>`;
+  }
+
+  blocks.forEach(block=>{
+    if(block.type==='heading'){
+      const sizes={1:32,2:26,3:22};
+      const sz=sizes[block.level]||24;
+      const style=block.level===1?'Heading1':block.level===2?'Heading2':'Heading3';
+      paras.push(`<w:p><w:pPr><w:pStyle w:val="${style}"/><w:spacing w:before="240" w:after="120"/></w:pPr>${run(block.text,{bold:true,size:sz,color:'2D2470'})}</w:p>`);
+    }else if(block.type==='paragraph'){
+      paras.push(`<w:p><w:pPr><w:spacing w:after="160" w:line="276" w:lineRule="auto"/></w:pPr>${run(block.text)}</w:p>`);
+    }else if(block.type==='list'){
+      const bullet=block.ordered?`${block.idx}.`:'•';
+      paras.push(`<w:p><w:pPr><w:ind w:left="720" w:hanging="360"/><w:spacing w:after="80"/></w:pPr>${run(bullet+'  ')}${run(block.text)}</w:p>`);
+    }else if(block.type==='table'){
+      const cols=block.rows[0]?.length||1;
+      const colWidth=Math.floor(9360/cols); // ~6.5in usable width in twentieths of a point
+      const rowsXml=block.rows.map((row,ri)=>{
+        const cellsXml=row.map(cell=>{
+          const shade=ri===0?'<w:shd w:val="clear" w:color="auto" w:fill="E6E4FF"/>':'';
+          return `<w:tc><w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/>${shade}</w:tcPr><w:p>${run(cell,{bold:ri===0})}</w:p></w:tc>`;
+        }).join('');
+        return `<w:tr>${cellsXml}</w:tr>`;
+      }).join('');
+      paras.push(`<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideH w:val="single" w:sz="4" w:color="CCCCCC"/><w:insideV w:val="single" w:sz="4" w:color="CCCCCC"/></w:tblBorders></w:tblPr>${rowsXml}</w:tbl><w:p/>`);
+    }else if(block.type==='hr'){
+      paras.push('<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="999999"/></w:pBdr></w:pPr></w:p>');
+    }else if(block.type==='br'){
+      paras.push('<w:p/>');
+    }
+  });
+
+  return paras.join('');
+}
+
+async function convertDocToDocx(){
+  if(!window.JSZip) throw new Error('JSZip non caricato. Controlla la connessione internet.');
+  const ext=currentExt.toLowerCase();
+  if(ext==='docx') throw new Error('Il file è già in formato DOCX.');
+
+  logLine('→ Lettura file...');setProgress(10,'Lettura...');
+  const arrayBuffer=await new Promise((res,rej)=>{
+    const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Lettura fallita'));
+    r.readAsArrayBuffer(currentFile);
+  });
+
+  const blocks=await extractBlocksFromDocument(arrayBuffer,ext);
+  if(blocks.length===0) throw new Error('Nessun contenuto trovato nel documento.');
+  logLine(`→ ${blocks.length} blocchi di contenuto trovati`);
+  setProgress(60,'Generazione DOCX...');
+
+  const bodyXml=blocksToDocxXml(blocks);
+
+  const documentXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>${bodyXml}
+<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>
+</w:body>
+</w:document>`;
+
+  const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>
+<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
+<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="120"/></w:pPr><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="200" w:after="100"/></w:pPr><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/><w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:before="160" w:after="80"/></w:pPr><w:rPr><w:b/><w:sz w:val="22"/></w:rPr></w:style>
+</w:styles>`;
+
+  const contentTypesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>`;
+
+  const rootRelsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`;
+
+  const docRelsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+  const now=new Date().toISOString();
+  const coreXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<dc:title>${escapeXml(currentFile.name.replace(/\.[^.]+$/,''))}</dc:title>
+<dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
+<dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>
+</cp:coreProperties>`;
+
+  const appXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">
+<Application>Convertitore Universale</Application>
+</Properties>`;
+
+  const zip=new JSZip();
+  zip.file('[Content_Types].xml',contentTypesXml);
+  zip.file('_rels/.rels',rootRelsXml);
+  zip.file('docProps/core.xml',coreXml);
+  zip.file('docProps/app.xml',appXml);
+  zip.file('word/document.xml',documentXml);
+  zip.file('word/styles.xml',stylesXml);
+  zip.file('word/_rels/document.xml.rels',docRelsXml);
+
+  setProgress(90,'Compressione...');
+  const blob=await zip.generateAsync({
+    type:'blob',
+    mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    compression:'DEFLATE',
+    compressionOptions:{level:6}
+  });
+  setProgress(95,'Finalizzazione...');
+  return blob;
+}
+
+
 async function convertPdfToImages(){
   if(!window.pdfjsLib) throw new Error('PDF.js non caricato. Controlla la connessione internet.');
   if(!window.JSZip) throw new Error('JSZip non caricato. Controlla la connessione internet.');
@@ -1133,21 +1551,30 @@ async function convertDocToEpub(){
 function extractAudioFromVideo(){
   return new Promise((resolve,reject)=>{
     const player=$('hiddenPlayer');
-    player.src=URL.createObjectURL(currentFile);
-    player.muted=false;player.playbackRate=1.0;
-    player.addEventListener('error',()=>reject(new Error('Impossibile caricare il video. Formato non supportato dal browser.')),{once:true});
-    player.addEventListener('loadedmetadata',async()=>{
-      const duration=player.duration;
-      logLine(`→ Durata: ${fmtTime(duration)}`);
+    let wakeLock=null,ticker=null,mr=null,stream=null,objectURL=null;
 
-      // WAV: decode via Web Audio (faster, no real-time)
-      if(targetFmt==='wav'){
-        logLine('→ Decodifica via Web Audio API...');setProgress(10,'Lettura...');
-        const ab=await new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Lettura fallita'));r.readAsArrayBuffer(currentFile)});
+    function cleanup(){
+      if(ticker){clearInterval(ticker);ticker=null;}
+      if(mr&&mr.state!=='inactive'){try{mr.stop()}catch(e){}}
+      if(stream){stream.getTracks().forEach(t=>t.stop());}
+      if(wakeLock){try{wakeLock.release()}catch(e){}}
+      player.classList.remove('active');
+      $('playerOverlay').style.display='none';
+      player.pause();
+      if(objectURL){URL.revokeObjectURL(objectURL);objectURL=null;}
+      player.src='';player.load();
+    }
+    function fail(msg){cleanup();reject(new Error(msg));}
+
+    // WAV path: use Web Audio API only — no captureStream needed
+    if(targetFmt==='wav'){
+      logLine('→ Decodifica via Web Audio API...');setProgress(10,'Lettura...');
+      const reader=new FileReader();
+      reader.onload=async e=>{
         try{
           const actx=new(window.AudioContext||window.webkitAudioContext)();
           setProgress(30,'Decodifica...');
-          const buf=await actx.decodeAudioData(ab);
+          const buf=await actx.decodeAudioData(e.target.result);
           logLine(`→ ${buf.numberOfChannels}ch · ${buf.sampleRate}Hz · ${fmtTime(buf.duration)}`);
           setProgress(65,'Encoding WAV...');
           const nCh=buf.numberOfChannels,sr=buf.sampleRate,len=buf.length;
@@ -1160,36 +1587,77 @@ function extractAudioFromVideo(){
           v.setUint16(22,nCh,true);v.setUint32(24,sr,true);
           v.setUint32(28,sr*nCh*2,true);v.setUint16(32,nCh*2,true);v.setUint16(34,16,true);
           wr(36,'data');v.setUint32(40,out.byteLength,true);new Int16Array(arrb,44).set(out);
-          URL.revokeObjectURL(player.src);player.src='';
+          setProgress(100,'Fatto!');
           resolve(new Blob([arrb],{type:'audio/wav'}));
-        }catch(e){URL.revokeObjectURL(player.src);player.src='';reject(new Error('Decodifica fallita: '+e.message))}
-        return;
-      }
+        }catch(e){reject(new Error('Decodifica fallita: '+e.message))}
+      };
+      reader.onerror=()=>reject(new Error('Lettura file fallita'));
+      reader.readAsArrayBuffer(currentFile);
+      return;
+    }
 
-      // OGG / WEBM: captureStream audio tracks only
-      const realFmt=targetFmt==='webm-audio'?'webm':targetFmt;
-      const mime=bestAudioMime(targetFmt);
-      if(!mime){reject(new Error('Codec audio non supportato per '+realFmt.toUpperCase()));return}
-      logLine(`→ Codec: ${mime}`);
-      let stream;
-      try{stream=player.captureStream()}catch(e){try{stream=player.mozCaptureStream()}catch(e2){reject(new Error('captureStream() non supportato'));return}}
-      await new Promise(r=>setTimeout(r,150));
+    // OGG/WEBM: captureStream audio tracks — same fixes as convertViaCaptureStream
+    const realFmt=targetFmt==='webm-audio'?'webm':targetFmt;
+    const mime=bestAudioMime(targetFmt);
+    if(!mime){reject(new Error('Codec audio non supportato per '+realFmt.toUpperCase()+' in questo browser'));return;}
+    logLine(`→ Codec: ${mime}`);
+
+    objectURL=URL.createObjectURL(currentFile);
+    player.src=objectURL;
+    player.muted=false;player.volume=1.0;player.playbackRate=1.0;
+    player.classList.add('active');
+    $('playerOverlay').style.display='flex';
+
+    player.addEventListener('error',()=>fail('Impossibile caricare il video: formato '+currentExt.toUpperCase()+' non supportato dal browser.'),{once:true});
+
+    player.addEventListener('loadedmetadata',async()=>{
+      const duration=player.duration;
+      logLine(`→ Durata: ${fmtTime(duration)}`);
+
+      try{await player.play();}
+      catch(e){fail('Riproduzione fallita: '+e.message);return;}
+
+      await new Promise(r=>setTimeout(r,200));
+
+      try{stream=player.captureStream?player.captureStream():player.mozCaptureStream();}
+      catch(e){fail('captureStream() non supportato');return;}
+
       const audioTracks=stream.getAudioTracks();
-      if(!audioTracks.length){reject(new Error('Nessuna traccia audio nel video.'));return}
+      if(!audioTracks.length){fail('Nessuna traccia audio trovata nel video.');return;}
       const audioStream=new MediaStream(audioTracks);
       logLine(`→ ${audioTracks.length} traccia/e audio trovata/e`);
+
+      try{wakeLock=await navigator.wakeLock?.request('screen');}catch(e){}
+
       const chunks=[];
-      let mr;
-      try{mr=new MediaRecorder(audioStream,{mimeType:mime})}
-      catch(e){reject(new Error('MediaRecorder: '+e.message));return}
-      mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data)};
-      mr.onstop=()=>{URL.revokeObjectURL(player.src);player.src='';resolve(new Blob(chunks,{type:mime}))};
-      mr.onerror=e=>reject(new Error('Errore MediaRecorder: '+e.error));
-      const ticker=setInterval(()=>{if(!player.duration)return;setProgress(Math.min((player.currentTime/player.duration)*95,95),`Estrazione ${fmtTime(player.currentTime)} / ${fmtTime(player.duration)}`)},400);
-      player.onended=()=>{clearInterval(ticker);setTimeout(()=>{mr.stop();audioStream.getTracks().forEach(t=>t.stop())},300)};
-      mr.start(1000);
-      try{await player.play()}catch(e){reject(new Error('Riproduzione fallita: '+e.message))}
+      try{mr=new MediaRecorder(audioStream,{mimeType:mime});}
+      catch(e){fail('MediaRecorder: '+e.message);return;}
+
+      mr.ondataavailable=e=>{if(e.data&&e.data.size>0)chunks.push(e.data);};
+      mr.onstop=()=>{
+        const blob=new Blob(chunks,{type:mime});
+        cleanup();
+        if(blob.size<500){reject(new Error('Output audio vuoto.'));return;}
+        resolve(blob);
+      };
+      mr.onerror=e=>fail('MediaRecorder error: '+(e.error?.message||e.error));
+
+      ticker=setInterval(()=>{
+        if(!player.duration)return;
+        setProgress(Math.min((player.currentTime/player.duration)*95,95),`Estrazione ${fmtTime(player.currentTime)} / ${fmtTime(player.duration)}`);
+      },500);
+
+      player.addEventListener('ended',()=>{
+        clearInterval(ticker);ticker=null;
+        setTimeout(()=>{if(mr&&mr.state==='recording')mr.stop();},500);
+      },{once:true});
+
+      setTimeout(()=>{if(mr&&mr.state==='recording'){logLine('→ Timeout sicurezza');mr.stop();}},
+        (duration+10)*1000);
+
+      mr.start(500);
     },{once:true});
+
     player.load();
   });
 }
@@ -1236,18 +1704,22 @@ async function doConvert(){
       logLine('→ ['+(i+1)+'/'+total+'] '+currentFile.name+' → '+targetFmt.toUpperCase());
       switch(targetMethod){
         case 'canvas':       window.__batchSetProg(5,'Canvas...');blob=await convertImage();break;
+        case 'img2ico':      window.__batchSetProg(5,'Icona...');blob=await convertImageToIco();break;
         case 'img2pdf':      window.__batchSetProg(5,'Caricamento...');blob=await convertImageToPdf();break;
         case 'gif':          blob=await convertVideoToGif();break;
         case 'webaudio':     blob=await convertToWav();break;
         case 'capturestream': blob=await convertViaCaptureStream();break;
         case 'doc2pdf':      blob=await convertDocToPdf();break;
+        case 'doc2docx':     blob=await convertDocToDocx();break;
         case 'doc2txt':      blob=await convertDocToTxt();break;
         case 'pdf2img':      blob=await convertPdfToImages();break;
         case 'doc2epub':     blob=await convertDocToEpub();break;
         case 'extractaudio': blob=await extractAudioFromVideo();break;
         default: throw new Error('Metodo sconosciuto: '+targetMethod);
       }
-      const outExt=targetMethod==='pdf2img'?'zip':targetFmt==='webm-audio'?'webm':targetFmt;
+      const outExt=targetMethod==='pdf2img'?'zip':
+        targetFmt==='webm-audio'?'webm':
+        (blob._actualFmt||targetFmt);
       const outName=currentFile.name.replace(/\.[^.]+$/,'')+'.'+outExt;
       results.push({blob,outName});
       window.__batchSetProg(100,'✓');
